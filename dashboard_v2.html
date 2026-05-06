@@ -339,12 +339,14 @@ body {
 </main>
 
 <script>
+// ضع رابط الـ CSV الذي استخرجته من Google Sheets هنا
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSnWKVfhHl6cD2lnMLrdXPntA0buQszjurxIjLuucKxlRhNNRYls4ivUGBVVgAtdCy3tvZLJ2EHet8A/pub?gid=411887403&single=true&output=csv';
 
 let allRows = [];
 let currentFilter = 'all';
 let charts = {};
 
+// تأكد أن هذه الأسماء تطابق تماماً العناوين في ملف الإكسيل لديك
 const COL = {
   date: 'posting date',
   category: 'Product Hierarchy',
@@ -383,224 +385,7 @@ function filterRows(rows) {
   return r;
 }
 
-function fmtNum(n) {
-  if (n >= 1000000) return (n / 1000000).toFixed(2) + 'م';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'ك';
-  return Math.round(n).toLocaleString();
-}
-
-function renderKPIs(rows) {
-  const sales = rows.filter(r => r[COL.billingType] === 'اونلاين');
-  const returns = rows.filter(r => r[COL.billingType] === 'مرتجع اونلاين');
-  const totalSales = sales.reduce((s, r) => s + (parseFloat(r[COL.valueEGP]) || 0), 0);
-  const totalReturns = Math.abs(returns.reduce((s, r) => s + (parseFloat(r[COL.valueEGP]) || 0), 0));
-  const netSales = totalSales - totalReturns;
-  const invoices = new Set(sales.map(r => r[COL.invoice])).size;
-  const units = sales.reduce((s, r) => s + (parseFloat(r[COL.qty]) || 0), 0);
-  const avgInvoice = invoices > 0 ? totalSales / invoices : 0;
-  const retRate = (totalSales > 0 ? (totalReturns / totalSales * 100) : 0).toFixed(1);
-
-  document.getElementById('kpiGrid').innerHTML = `
-    <div class="kpi green"><div class="kpi-label">إجمالي المبيعات</div><div class="kpi-val green">${fmtNum(totalSales)}</div><div class="kpi-sub">ج.م قبل المرتجعات</div></div>
-    <div class="kpi blue"><div class="kpi-label">صافي المبيعات</div><div class="kpi-val blue">${fmtNum(netSales)}</div><div class="kpi-sub">ج.م بعد المرتجعات</div></div>
-    <div class="kpi red"><div class="kpi-label">المرتجعات</div><div class="kpi-val red">${fmtNum(totalReturns)}</div><div class="kpi-sub">نسبة ${retRate}%</div></div>
-    <div class="kpi"><div class="kpi-label">عدد الفواتير</div><div class="kpi-val">${invoices.toLocaleString()}</div><div class="kpi-sub">فاتورة مبيعات</div></div>
-    <div class="kpi gold"><div class="kpi-label">عدد القطع</div><div class="kpi-val gold">${Math.round(units).toLocaleString()}</div><div class="kpi-sub">وحدة مباعة</div></div>
-    <div class="kpi purple"><div class="kpi-label">متوسط الفاتورة</div><div class="kpi-val purple">${fmtNum(avgInvoice)}</div><div class="kpi-sub">ج.م للفاتورة</div></div>
-  `;
-}
-
-function renderDaily(rows) {
-  const sales = rows.filter(r => r[COL.billingType] === 'اونلاين');
-  const byDate = {};
-  sales.forEach(r => {
-    const d = (r[COL.date] || '').split(' ')[0].split('T')[0];
-    if (!d) return;
-    byDate[d] = (byDate[d] || 0) + (parseFloat(r[COL.valueEGP]) || 0);
-  });
-  const dates = Object.keys(byDate).sort();
-  const vals = dates.map(d => Math.round(byDate[d]));
-  const labels = dates.map(d => d.slice(5));
-
-  destroyChart('daily');
-  charts.daily = new Chart(document.getElementById('dailyChart'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        data: vals,
-        borderColor: '#3b8bd4',
-        backgroundColor: 'rgba(59,139,212,0.08)',
-        fill: true, tension: 0.4, pointRadius: 2, borderWidth: 2,
-        pointBackgroundColor: '#3b8bd4'
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 20, autoSkip: true } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, callback: v => fmtNum(v) } }
-      }
-    }
-  });
-}
-
-function renderCategories(rows) {
-  const sales = rows.filter(r => r[COL.billingType] === 'اونلاين');
-  const byCat = {};
-  sales.forEach(r => {
-    const c = r[COL.category] || 'أخرى';
-    byCat[c] = (byCat[c] || 0) + (parseFloat(r[COL.valueEGP]) || 0);
-  });
-  const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 7);
-  const colors = ['#f0c040','#3b8bd4','#1db97a','#8b6ff0','#e8593c','#e8903c','#3bc4d4'];
-
-  destroyChart('cat');
-  charts.cat = new Chart(document.getElementById('catChart'), {
-    type: 'doughnut',
-    data: {
-      labels: sorted.map(x => x[0]),
-      datasets: [{ data: sorted.map(x => Math.round(x[1])), backgroundColor: colors, borderWidth: 0 }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false, cutout: '60%',
-      plugins: { legend: { display: true, position: 'bottom', labels: { color: '#6b7280', font: { size: 10 }, boxWidth: 10, padding: 6 } } }
-    }
-  });
-}
-
-function renderDOW(rows) {
-  const sales = rows.filter(r => r[COL.billingType] === 'اونلاين');
-  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const arNames = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
-  const byDay = {};
-  dayNames.forEach(d => byDay[d] = 0);
-  sales.forEach(r => {
-    const d = r[COL.date] ? new Date(r[COL.date]).getDay() : -1;
-    if (d >= 0) byDay[dayNames[d]] += (parseFloat(r[COL.valueEGP]) || 0);
-  });
-  const vals = dayNames.map(d => Math.round(byDay[d]));
-  const maxVal = Math.max(...vals);
-
-  destroyChart('dow');
-  charts.dow = new Chart(document.getElementById('dowChart'), {
-    type: 'bar',
-    data: {
-      labels: arNames,
-      datasets: [{
-        data: vals,
-        backgroundColor: vals.map(v => v === maxVal ? '#1db97a' : 'rgba(29,185,122,0.25)'),
-        borderRadius: 4
-      }]
-    },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, callback: v => fmtNum(v) } },
-        y: { grid: { display: false }, ticks: { color: '#9ca3af', font: { size: 10 } } }
-      }
-    }
-  });
-}
-
-function renderSalesVsReturns(rows) {
-  const months = {};
-  rows.forEach(r => {
-    const m = (r[COL.date] || '').slice(0, 7);
-    if (!m) return;
-    if (!months[m]) months[m] = { sales: 0, returns: 0 };
-    const v = parseFloat(r[COL.valueEGP]) || 0;
-    if (r[COL.billingType] === 'اونلاين') months[m].sales += v;
-    else if (r[COL.billingType] === 'مرتجع اونلاين') months[m].returns += Math.abs(v);
-  });
-  const labels = Object.keys(months).sort();
-  const arMonths = { '2026-04': 'أبريل', '2026-05': 'مايو', '2026-06': 'يونيو', '2026-07': 'يوليو', '2026-08': 'أغسطس', '2026-09': 'سبتمبر', '2026-10': 'أكتوبر', '2026-11': 'نوفمبر', '2026-12': 'ديسمبر', '2026-01': 'يناير', '2026-02': 'فبراير', '2026-03': 'مارس' };
-
-  destroyChart('sr');
-  charts.sr = new Chart(document.getElementById('srChart'), {
-    type: 'bar',
-    data: {
-      labels: labels.map(l => arMonths[l] || l),
-      datasets: [
-        { label: 'مبيعات', data: labels.map(l => Math.round(months[l].sales)), backgroundColor: 'rgba(29,185,122,0.6)', borderRadius: 4 },
-        { label: 'مرتجعات', data: labels.map(l => Math.round(months[l].returns)), backgroundColor: 'rgba(232,89,60,0.6)', borderRadius: 4 }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: true, labels: { color: '#6b7280', font: { size: 10 }, boxWidth: 10 } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { color: '#6b7280', font: { size: 10 } } },
-        y: { grid: { color: 'rgba(255,255,255,0.04)' }, ticks: { color: '#6b7280', font: { size: 9 }, callback: v => fmtNum(v) } }
-      }
-    }
-  });
-}
-
-function renderRegions(rows) {
-  const sales = rows.filter(r => r[COL.billingType] === 'اونلاين');
-  const byRegion = {};
-  sales.forEach(r => {
-    const reg = r[COL.region] || 'غير محدد';
-    byRegion[reg] = (byRegion[reg] || 0) + 1;
-  });
-  const sorted = Object.entries(byRegion).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  const max = sorted[0]?.[1] || 1;
-  const arRegions = { Cairo:'القاهرة', Giza:'الجيزة', Alexandria:'الإسكندرية', Dakahlia:'الدقهلية', 'Al Sharqia':'الشرقية', Gharbia:'الغربية', Monufia:'المنوفية', Qalyubia:'القليوبية', Damietta:'دمياط', Ismailia:'الإسماعيلية', Suez:'السويس', 'six october':'6 أكتوبر', Minya:'المنيا', 'Port Said':'بورسعيد', Sohag:'سوهاج', Beheira:'البحيرة', Faiyum:'الفيوم', 'Red Sea':'البحر الأحمر', 'Beni Suef':'بني سويف', Qena:'قنا', Asyut:'أسيوط', Luxor:'الأقصر', 'South Sinai':'جنوب سيناء', 'Kafr el-Sheikh':'كفر الشيخ' };
-
-  document.getElementById('regionList').innerHTML = sorted.map(([r, v]) => `
-    <div class="region-item">
-      <span class="region-name">${arRegions[r] || r}</span>
-      <div class="region-bar-bg"><div class="region-bar-fill" style="width:${(v / max * 100).toFixed(0)}%"></div></div>
-      <span class="region-count">${v}</span>
-    </div>
-  `).join('');
-}
-
-function renderTopProducts(rows) {
-  const sales = rows.filter(r => r[COL.billingType] === 'اونلاين');
-  const byProd = {};
-  sales.forEach(r => {
-    const p = r[COL.category] || 'أخرى';
-    if (!byProd[p]) byProd[p] = { val: 0, qty: 0 };
-    byProd[p].val += (parseFloat(r[COL.valueEGP]) || 0);
-    byProd[p].qty += (parseFloat(r[COL.qty]) || 0);
-  });
-  const sorted = Object.entries(byProd).sort((a, b) => b[1].val - a[1].val).slice(0, 8);
-  const maxVal = sorted[0]?.[1].val || 1;
-
-  document.querySelector('#topProductsTable tbody').innerHTML = sorted.map(([name, d], i) => `
-    <tr>
-      <td>${name}</td>
-      <td style="color:var(--accent);font-family:var(--mono)">${Math.round(d.val).toLocaleString()}</td>
-      <td style="color:var(--muted);font-family:var(--mono)">${Math.round(d.qty)}</td>
-    </tr>
-  `).join('');
-}
-
-function destroyChart(id) {
-  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
-}
-
-function renderAll(rows) {
-  const filtered = filterRows(rows);
-  renderKPIs(filtered);
-  renderDaily(filtered);
-  renderCategories(filtered);
-  renderDOW(filtered);
-  renderSalesVsReturns(filtered);
-  renderRegions(filtered);
-  renderTopProducts(filtered);
-}
-
-function setFilter(f, el) {
-  currentFilter = f;
-  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-  el.classList.add('active');
-  renderAll(allRows);
-}
+// ... (دوال الرسم البياني renderKPIs, renderDaily, إلخ تبقى كما هي في كودك)
 
 async function loadData() {
   document.getElementById('loading').style.display = 'flex';
@@ -608,7 +393,9 @@ async function loadData() {
   document.getElementById('error-msg').style.display = 'none';
 
   try {
+    // استخدام بروكسي allorigins لتجاوز حماية المتصفح (CORS)
     const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(CSV_URL + "&t=" + Date.now())}`;
+    
     const res = await fetch(proxyUrl);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
@@ -616,10 +403,10 @@ async function loadData() {
 
     if (allRows.length === 0) throw new Error('البيانات فارغة');
 
-    // detect available months & show chips
+    // إظهار الفلاتر بناءً على الشهور المتاحة
     const months = new Set(allRows.map(r => (r[COL.date] || '').slice(0, 7)));
-    document.getElementById('chip-m4').style.display = months.has('2026-04') ? '' : 'none';
-    document.getElementById('chip-m5').style.display = months.has('2026-05') ? '' : 'none';
+    if(document.getElementById('chip-m4')) document.getElementById('chip-m4').style.display = months.has('2026-04') ? '' : 'none';
+    if(document.getElementById('chip-m5')) document.getElementById('chip-m5').style.display = months.has('2026-05') ? '' : 'none';
 
     renderAll(allRows);
 
@@ -636,6 +423,29 @@ async function loadData() {
     errEl.style.display = 'block';
     errEl.textContent = '⚠️ تعذر تحميل البيانات: ' + err.message + ' — تأكد من أن الـ Google Sheet منشور كـ CSV وحاول مرة تانية.';
   }
+}
+
+// الدوال المساعدة للرسم البياني (تأكد من وجودها كاملة في ملفك)
+function renderAll(rows) {
+  const filtered = filterRows(rows);
+  renderKPIs(filtered);
+  renderDaily(filtered);
+  renderCategories(filtered);
+  renderDOW(filtered);
+  renderSalesVsReturns(filtered);
+  renderRegions(filtered);
+  renderTopProducts(filtered);
+}
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function setFilter(f, el) {
+  currentFilter = f;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderAll(allRows);
 }
 
 loadData();
